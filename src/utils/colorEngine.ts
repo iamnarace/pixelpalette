@@ -212,6 +212,81 @@ export function calculateWcagContrast(foregroundHex: string, backgroundHex: stri
   };
 }
 
+export interface HarmonySlotSpec {
+  hueOffset: number;
+  lightness: number;
+  satDelta: number;
+}
+
+export function getHarmonyBlueprint(mode: HarmonyMode): HarmonySlotSpec[] {
+  switch (mode) {
+    case 'analogous':
+      return [
+        { hueOffset: -36, lightness: 28, satDelta: 0 },
+        { hueOffset: -18, lightness: 44, satDelta: 0 },
+        { hueOffset: 0, lightness: 56, satDelta: 0 },
+        { hueOffset: 18, lightness: 68, satDelta: 0 },
+        { hueOffset: 36, lightness: 84, satDelta: -10 },
+      ];
+    case 'complementary':
+      return [
+        { hueOffset: 0, lightness: 26, satDelta: 0 },
+        { hueOffset: 0, lightness: 52, satDelta: 0 },
+        { hueOffset: 0, lightness: 82, satDelta: -20 },
+        { hueOffset: 180, lightness: 48, satDelta: 0 },
+        { hueOffset: 180, lightness: 68, satDelta: 0 },
+      ];
+    case 'triadic':
+      return [
+        { hueOffset: 0, lightness: 34, satDelta: 0 },
+        { hueOffset: 0, lightness: 58, satDelta: 0 },
+        { hueOffset: 120, lightness: 48, satDelta: 0 },
+        { hueOffset: 240, lightness: 52, satDelta: 0 },
+        { hueOffset: 240, lightness: 82, satDelta: -15 },
+      ];
+    case 'split-complementary':
+      return [
+        { hueOffset: 0, lightness: 30, satDelta: 0 },
+        { hueOffset: 0, lightness: 56, satDelta: 0 },
+        { hueOffset: 150, lightness: 48, satDelta: 0 },
+        { hueOffset: 210, lightness: 54, satDelta: 0 },
+        { hueOffset: 210, lightness: 86, satDelta: -25 },
+      ];
+    case 'monochromatic':
+    default:
+      return [
+        { hueOffset: 0, lightness: 18, satDelta: 0 },
+        { hueOffset: 0, lightness: 36, satDelta: 0 },
+        { hueOffset: 0, lightness: 54, satDelta: 0 },
+        { hueOffset: 0, lightness: 72, satDelta: 0 },
+        { hueOffset: 0, lightness: 88, satDelta: 0 },
+      ];
+  }
+}
+
+/**
+ * Signed shortest angular distance on the 360-degree colour wheel in [-180, 180].
+ */
+export function shortestHueDelta(fromHue: number, toHue: number): number {
+  return ((((toHue - fromHue) % 360) + 540) % 360) - 180;
+}
+
+/**
+ * Unsigned circular distance between two hues in [0, 180].
+ */
+export function circularHueDistance(h1: number, h2: number): number {
+  return Math.abs(shortestHueDelta(h1, h2));
+}
+
+/**
+ * Interpolates between two hues along the shortest circular arc.
+ */
+export function interpolateHue(fromHue: number, toHue: number, t: number): number {
+  const clampedT = Math.max(0, Math.min(1, t));
+  const delta = shortestHueDelta(fromHue, toHue);
+  return Math.round((((fromHue + delta * clampedT) % 360) + 360) % 360);
+}
+
 /**
  * Generates a 5-colour harmonic palette from a base HSL seed and harmony rule.
  */
@@ -263,6 +338,209 @@ export function generateHarmonicHexes(baseHex: string, mode: HarmonyMode): strin
         hslToHex({ h, s, l: 88 }),
       ];
   }
+}
+
+export interface GeneratePaletteOptions {
+  /**
+   * Optional variation step (0 = canonical harmonic stops; >0 = bounded saturation/lightness
+   * and chord-order exploration so repeated generation produces fresh compatible palettes).
+   */
+  variationStep?: number;
+  /**
+   * Optional custom PRNG in [0, 1) used when no swatches are locked.
+   */
+  randomFn?: () => number;
+}
+
+/**
+ * Generates a 5-swatch harmonic palette that honours locked swatches:
+ * - 0 locked swatches: generates a fresh harmonic scale from a random seed hue.
+ * - 1 locked swatch: uses the locked swatch's HSL and slot position as the harmony anchor,
+ *   computing the root hue so all unlocked slots form the requested harmony around the locked swatch.
+ * - 2..4 locked swatches: preserves all locked swatches in place and synthesizes compatible
+ *   colours for unlocked slots (interpolating along the shortest hue arc between locked anchors
+ *   for analogous mode, adopting the nearest locked anchor hue for monochromatic mode, or filling
+ *   missing harmonic chord counterparts for complementary/triadic/split-complementary modes).
+ * - All 5 locked: returns the swatches unchanged.
+ */
+export function generatePaletteWithLocks(
+  currentSwatches: PaletteSwatch[],
+  mode: HarmonyMode,
+  options: GeneratePaletteOptions = {}
+): PaletteSwatch[] {
+  const { variationStep = 0, randomFn = Math.random } = options;
+  const blueprint = getHarmonyBlueprint(mode);
+
+  const lockedIndices: number[] = [];
+  currentSwatches.forEach((sw, idx) => {
+    if (sw.locked) lockedIndices.push(idx);
+  });
+
+  // Case 1: All swatches locked -> preserve as-is
+  if (lockedIndices.length >= currentSwatches.length) {
+    return currentSwatches.map((sw) => ({ ...sw }));
+  }
+
+  // Case 2: No swatches locked -> random seed hue with full harmony generation
+  if (lockedIndices.length === 0) {
+    const randomHue = Math.floor(randomFn() * 360);
+    const randomSeedHex = hslToHex({ h: randomHue, s: 78, l: 52 });
+    const generated = generateHarmonicHexes(randomSeedHex, mode);
+    return currentSwatches.map((sw, idx) => ({
+      ...sw,
+      hex: generated[idx] ?? sw.hex,
+    }));
+  }
+
+  const usedHexes = new Set<string>(
+    lockedIndices.map((idx) => normalizeHex(currentSwatches[idx].hex) ?? currentSwatches[idx].hex)
+  );
+
+  const satShift = variationStep > 0 ? (((variationStep * 11) % 17) - 8) : 0;
+  const lightShift = variationStep > 0 ? (((variationStep * 7) % 13) - 6) : 0;
+
+  const ensureDistinctHex = (h: number, s: number, l: number): string => {
+    const clampedS = Math.max(20, Math.min(95, Math.round(s)));
+    const clampedL = Math.max(14, Math.min(90, Math.round(l)));
+    let candidate = hslToHex({ h, s: clampedS, l: clampedL });
+    if (!usedHexes.has(candidate)) {
+      usedHexes.add(candidate);
+      return candidate;
+    }
+    for (const deltaL of [12, -12, 22, -22, 30, -30]) {
+      const altL = Math.max(12, Math.min(92, clampedL + deltaL));
+      candidate = hslToHex({ h, s: clampedS, l: altL });
+      if (!usedHexes.has(candidate)) {
+        usedHexes.add(candidate);
+        return candidate;
+      }
+    }
+    usedHexes.add(candidate);
+    return candidate;
+  };
+
+  // Case 3: Single locked swatch -> anchor harmony root to the locked swatch's slot & HSL
+  if (lockedIndices.length === 1) {
+    const anchorIdx = lockedIndices[0];
+    const anchorSwatch = currentSwatches[anchorIdx];
+    const anchorHsl = hexToHsl(anchorSwatch.hex);
+    const anchorSlot = blueprint[anchorIdx] ?? blueprint[0];
+    const rootHue = (((anchorHsl.h - anchorSlot.hueOffset) % 360) + 360) % 360;
+    const baseSat =
+      anchorHsl.s < 10 ? 70 : Math.max(35, Math.min(90, anchorHsl.s));
+
+    return currentSwatches.map((sw, idx) => {
+      if (sw.locked) return { ...sw };
+      const slot = blueprint[idx] ?? blueprint[0];
+      const targetHue = (((rootHue + slot.hueOffset) % 360) + 360) % 360;
+      const targetSat = baseSat + slot.satDelta + satShift;
+      const targetLight = slot.lightness + lightShift;
+      return {
+        ...sw,
+        hex: ensureDistinctHex(targetHue, targetSat, targetLight),
+      };
+    });
+  }
+
+  // Case 4: Multiple locked swatches (2..4 locked) -> multi-anchor synthesis
+  const lockedAnchors = lockedIndices.map((index) => {
+    const normHex = normalizeHex(currentSwatches[index].hex) ?? currentSwatches[index].hex;
+    return {
+      index,
+      hex: normHex,
+      hsl: hexToHsl(normHex),
+    };
+  });
+
+  const chromaticAnchors = lockedAnchors.filter((a) => a.hsl.s >= 10);
+  const avgSat =
+    chromaticAnchors.length > 0
+      ? Math.round(
+          chromaticAnchors.reduce((acc, a) => acc + a.hsl.s, 0) /
+            chromaticAnchors.length
+        )
+      : 70;
+  const baseSat = Math.max(35, Math.min(90, avgSat));
+
+  const chordOffsets: Record<HarmonyMode, number[]> = {
+    analogous: [-36, -18, 0, 18, 36],
+    complementary: [0, 180],
+    triadic: [0, 120, 240],
+    'split-complementary': [0, 150, 210],
+    monochromatic: [0],
+  };
+
+  const activeHues: number[] = lockedAnchors.map((a) => a.hsl.h);
+
+  // Build candidate chord hues for complementary / triadic / split-complementary
+  const candidateChordHues: number[] = [];
+  const offsets = chordOffsets[mode];
+  // Prioritize non-zero harmonic partners of each locked swatch first, then anchor hues
+  for (let offIdx = 1; offIdx < offsets.length; offIdx++) {
+    for (const anchor of lockedAnchors) {
+      candidateChordHues.push((((anchor.hsl.h + offsets[offIdx]) % 360) + 360) % 360);
+    }
+  }
+  for (const anchor of lockedAnchors) {
+    candidateChordHues.push(anchor.hsl.h);
+  }
+
+  let unlockedCounter = 0;
+
+  return currentSwatches.map((sw, idx) => {
+    if (sw.locked) return { ...sw };
+
+    const slot = blueprint[idx] ?? blueprint[0];
+    // Find nearest locked anchor by index distance
+    const nearestAnchor = lockedAnchors.reduce((best, curr) =>
+      Math.abs(curr.index - idx) < Math.abs(best.index - idx) ? curr : best
+    );
+
+    let targetHue = nearestAnchor.hsl.h;
+
+    if (mode === 'monochromatic') {
+      targetHue = nearestAnchor.hsl.h;
+    } else if (mode === 'analogous') {
+      const leftAnchor = [...lockedAnchors]
+        .reverse()
+        .find((a) => a.index < idx);
+      const rightAnchor = lockedAnchors.find((a) => a.index > idx);
+
+      if (leftAnchor && rightAnchor) {
+        const t =
+          (idx - leftAnchor.index) / (rightAnchor.index - leftAnchor.index);
+        targetHue = interpolateHue(leftAnchor.hsl.h, rightAnchor.hsl.h, t);
+      } else {
+        const stepOffset = (idx - nearestAnchor.index) * 18;
+        targetHue = (((nearestAnchor.hsl.h + stepOffset) % 360) + 360) % 360;
+      }
+    } else {
+      // Pick harmonic chord candidate that best complements existing hues
+      const rankedCandidates = [...candidateChordHues].sort((hA, hB) => {
+        const minDistA = Math.min(
+          ...activeHues.map((existing) => circularHueDistance(hA, existing))
+        );
+        const minDistB = Math.min(
+          ...activeHues.map((existing) => circularHueDistance(hB, existing))
+        );
+        return minDistB - minDistA;
+      });
+      const pickIndex =
+        (unlockedCounter + Math.max(0, variationStep)) %
+        Math.max(1, rankedCandidates.length);
+      targetHue = rankedCandidates[pickIndex] ?? nearestAnchor.hsl.h;
+      activeHues.push(targetHue);
+    }
+
+    unlockedCounter += 1;
+    const targetSat = baseSat + slot.satDelta + satShift;
+    const targetLight = slot.lightness + lightShift;
+
+    return {
+      ...sw,
+      hex: ensureDistinctHex(targetHue, targetSat, targetLight),
+    };
+  });
 }
 
 export type ExportFormat = 'css' | 'tailwind' | 'json';

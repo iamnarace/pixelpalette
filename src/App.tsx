@@ -25,9 +25,8 @@ import {
   hexToRgb,
   rgbToHex,
   hexToHsl,
-  hslToHex,
   calculateWcagContrast,
-  generateHarmonicHexes,
+  generatePaletteWithLocks,
   formatPaletteTokens,
 } from './utils/colorEngine';
 
@@ -65,6 +64,7 @@ export function App() {
   // 1. Palette Generator & Export State
   const [swatches, setSwatches] = useState<PaletteSwatch[]>(INITIAL_SWATCHES);
   const [harmony, setHarmony] = useState<HarmonyMode>('analogous');
+  const [variationStep, setVariationStep] = useState<number>(0);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('css');
   const [paletteTitle, setPaletteTitle] = useState<string>('Cyber Iris System');
   const [savedPalettes, setSavedPalettes] = useState<SavedPalette[]>(() => {
@@ -119,24 +119,18 @@ export function App() {
   };
 
   // Generate new harmonic palette respecting locked swatches
-  const handleGeneratePalette = (nextHarmony = harmony) => {
-    const randomHue = Math.floor(Math.random() * 360);
-    const randomSeedHex = hslToHex({ h: randomHue, s: 78, l: 52 });
-    const generated = generateHarmonicHexes(randomSeedHex, nextHarmony);
-
+  const handleGeneratePalette = (nextHarmony = harmony, resetVariation = false) => {
+    const step = resetVariation ? 0 : variationStep;
     setSwatches((prev) =>
-      prev.map((sw, idx) =>
-        sw.locked
-          ? sw
-          : {
-              ...sw,
-              hex: generated[idx] ?? sw.hex,
-            }
-      )
+      generatePaletteWithLocks(prev, nextHarmony, {
+        variationStep: step,
+      })
     );
+    setVariationStep(step + 1);
   };
 
   const toggleLockSwatch = (id: string) => {
+    setVariationStep(0);
     setSwatches((prev) =>
       prev.map((sw) => (sw.id === id ? { ...sw, locked: !sw.locked } : sw))
     );
@@ -266,7 +260,7 @@ export function App() {
                   onChange={(e) => {
                     const next = e.target.value as HarmonyMode;
                     setHarmony(next);
-                    handleGeneratePalette(next);
+                    handleGeneratePalette(next, true);
                   }}
                   className="bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-semibold text-zinc-100"
                 >
@@ -279,12 +273,21 @@ export function App() {
 
                 <button
                   type="button"
-                  onClick={() => handleGeneratePalette(harmony)}
+                  onClick={() => handleGeneratePalette(harmony, false)}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold shadow-sm cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   Generate Harmonic Palette
                 </button>
+                {swatches.some((s) => s.locked) && (
+                  <span
+                    data-testid="locked-anchor-status"
+                    className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                  >
+                    Anchored to {swatches.filter((s) => s.locked).length} locked{' '}
+                    {swatches.filter((s) => s.locked).length === 1 ? 'swatch' : 'swatches'}
+                  </span>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
