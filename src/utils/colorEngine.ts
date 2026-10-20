@@ -376,9 +376,12 @@ export function generatePaletteWithLocks(
     if (sw.locked) lockedIndices.push(idx);
   });
 
-  // Case 1: All swatches locked -> preserve as-is
+  // Case 1: All swatches locked -> preserve as-is (normalized to canonical #RRGGBB)
   if (lockedIndices.length >= currentSwatches.length) {
-    return currentSwatches.map((sw) => ({ ...sw }));
+    return currentSwatches.map((sw) => ({
+      ...sw,
+      hex: normalizeHex(sw.hex) ?? sw.hex,
+    }));
   }
 
   // Case 2: No swatches locked -> random seed hue with full harmony generation
@@ -430,7 +433,7 @@ export function generatePaletteWithLocks(
       anchorHsl.s < 10 ? 70 : Math.max(35, Math.min(90, anchorHsl.s));
 
     return currentSwatches.map((sw, idx) => {
-      if (sw.locked) return { ...sw };
+      if (sw.locked) return { ...sw, hex: normalizeHex(sw.hex) ?? sw.hex };
       const slot = blueprint[idx] ?? blueprint[0];
       const targetHue = (((rootHue + slot.hueOffset) % 360) + 360) % 360;
       const targetSat = baseSat + slot.satDelta + satShift;
@@ -488,7 +491,7 @@ export function generatePaletteWithLocks(
   let unlockedCounter = 0;
 
   return currentSwatches.map((sw, idx) => {
-    if (sw.locked) return { ...sw };
+    if (sw.locked) return { ...sw, hex: normalizeHex(sw.hex) ?? sw.hex };
 
     const slot = blueprint[idx] ?? blueprint[0];
     // Find nearest locked anchor by index distance

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1] - 2026-10-20
+
+### Changed
+- **Locked Swatch Harmony Synthesis:** Implemented `generatePaletteWithLocks` so single and multiple locked swatches act as true colour-wheel anchors across all five harmony modes (*Analogous*, *Complementary*, *Triadic*, *Split-Complementary*, and *Monochromatic*).
+- **Deterministic Generation & Shorthand Normalization:** Added deterministic `variationStep` and `randomFn` support and normalized locked 3-digit hex codes to canonical `#RRGGBB` format.
+- **Build & Test Tooling:** Upgraded Vite to v6 and Vitest to v4 with multi-lock, achromatic, and determinism regression tests.
+
 ## [1.0.0] - 2026-10-20
 
 ### Added

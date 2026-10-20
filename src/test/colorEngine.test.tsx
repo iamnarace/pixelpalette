@@ -142,6 +142,52 @@ describe('PixelPalette Colour Space & WCAG 2.1 Contrast Suite', () => {
     expect(unchanged.map((s) => s.hex)).toEqual(allLocked.map((s) => s.hex));
   });
 
+  it('handles unusual lock combinations (non-adjacent locks, achromatic locks, 3-digit hexes) across all 5 harmony modes and guarantees deterministic output for identical inputs', () => {
+    const modes = [
+      'analogous',
+      'complementary',
+      'triadic',
+      'split-complementary',
+      'monochromatic',
+    ] as const;
+
+    // Non-adjacent locked slots [0, 2, 4] including achromatic black (#000000) and shorthand (#f0a -> #FF00AA)
+    const nonAdjacentLocks: PaletteSwatch[] = [
+      { id: '1', hex: '#000000', name: 'S1', locked: true },
+      { id: '2', hex: '#123456', name: 'S2', locked: false },
+      { id: '3', hex: '#f0a', name: 'S3', locked: true },
+      { id: '4', hex: '#654321', name: 'S4', locked: false },
+      { id: '5', hex: '#FFFFFF', name: 'S5', locked: true },
+    ];
+
+    for (const mode of modes) {
+      const runA = generatePaletteWithLocks(nonAdjacentLocks, mode, { variationStep: 2 });
+      const runB = generatePaletteWithLocks(nonAdjacentLocks, mode, { variationStep: 2 });
+
+      // Deterministic for identical inputs and variationStep
+      expect(runA).toEqual(runB);
+
+      // Locked slots [0, 2, 4] are preserved (with #f0a normalized to #FF00AA)
+      expect(runA[0].hex).toBe('#000000');
+      expect(runA[2].hex).toBe('#FF00AA');
+      expect(runA[4].hex).toBe('#FFFFFF');
+
+      // Unlocked slots [1, 3] are valid 6-digit uppercase hex colours
+      expect(runA[1].hex).toMatch(/^#[0-9A-F]{6}$/);
+      expect(runA[3].hex).toMatch(/^#[0-9A-F]{6}$/);
+    }
+
+    // 0-lock mode is also 100% deterministic when a seeded randomFn is provided
+    const unlockedSwatches = nonAdjacentLocks.map((s) => ({ ...s, locked: false }));
+    const seededA = generatePaletteWithLocks(unlockedSwatches, 'split-complementary', {
+      randomFn: () => 0.37,
+    });
+    const seededB = generatePaletteWithLocks(unlockedSwatches, 'split-complementary', {
+      randomFn: () => 0.37,
+    });
+    expect(seededA).toEqual(seededB);
+  });
+
   it('honours locked swatches in the Palette Studio UI when clicking Generate Harmonic Palette', () => {
     render(<App />);
     // Lock the first swatch (#1E1B4B)
