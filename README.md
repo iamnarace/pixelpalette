@@ -45,13 +45,13 @@ Building accessible interfaces requires verifying text contrast against backgrou
 - **Framework:** React 18 + TypeScript 5
 - **Styling:** Tailwind CSS (Neutral Dark Chromatics studio theme)
 - **Icons:** Lucide React
-- **Build & Test:** Vite 5, Vitest, React Testing Library, ESLint
+- **Build & Test:** Vite 6, Vitest 4, React Testing Library, ESLint
 
 ---
 
 ## Requirements & Installation
 
-- **Node.js:** v18.18+ or v20+
+- **Node.js:** v20+ LTS recommended (v18.18+ supported for build/runtime)
 - **npm:** v9+
 
 ```bash
